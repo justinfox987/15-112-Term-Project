@@ -7,8 +7,13 @@
     Started brainstorming features
 
 
-%%%%% FEATURES %%%%
 
+
+%%%%% FEATURES %%%%
+ -- starting step: build simple GUI w/ CLI
+ -- built textboxes
 
 %%%% AI USE %%%%
     Used Claude Sonnet to figure out how to create a repo, connect VScode and github
+    Used Claude to write a text input handler
+    Used Claude to write a better text drawing handler, drawText()

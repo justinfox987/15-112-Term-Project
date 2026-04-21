@@ -1,11 +1,12 @@
 from cmu_graphics import *
 from structures import *
+import google.genai as genai
 
 ##### CLI ELEMENTS #####
 
 
 ##### drawText() WRITTEN BY CLAUDE ####
-def drawText(app, rectCX, rectCY, rectW, rectH, text, fontSize=16):
+def drawText(app, rectCX, rectCY, rectW, rectH, text, fontSize=16,bold=False):
     padding = 0.1
     maxW = rectW * (1 - 2*padding)
     maxH = rectH * (1 - 2*padding)
@@ -42,17 +43,67 @@ def drawText(app, rectCX, rectCY, rectW, rectH, text, fontSize=16):
             break
         fontSize -= 1
 
+    align = 'center' if bold else 'left-top'
+    x = rectCX if bold else textLX
+    y0 = rectCY - (len(lines) - 1) * lineHeight / 2 if bold else textLY
     for i, line in enumerate(lines):
-        y = textLY + i * lineHeight
-        drawLabel(line, textLX, y, size=fontSize, align='left-top', font='Arial')
+        y = y0 + i * lineHeight
+        drawLabel(line, x, y, size=fontSize, align=align, font='Arial', bold=bold)
 
 
+def drawFunctionInputMenu(app):
+     ##### HANDLE MENUS SPECIFIC ####
+    fnInputMenu = app.menus['fnInputMenu']
+        #### USED CLAUDE TO WRITE PADDING STUFF
+    cx,cy = app.width//2, app.height//2
+    w,h = app.width*0.7, app.height*0.6
+    padding = min(w,h) * 0.05
+    gap = padding
+    innerW, innerH = w-2*padding, h-2*padding
+    titleH = padding * 1.25
+    boxH = innerH - titleH - gap
+    boxCY = cy + (titleH + gap) / 2
+    titleCY = cy - innerH/2 + titleH/2
+    halfW = (innerW - gap) / 2
+    leftCX  = cx - gap/2 - halfW/2
+    rightCX = cx + gap/2 + halfW/2
+    leftTitleCX,leftTitleCY = leftCX, (boxCY - boxH*0.45)
+
+        ####### HANDLE FUNCTION INPUT MENU
+    if fnInputMenu.opened:
+        fnInputMenu.drawOpenedMenu(app)
+        drawLabel(fnInputMenu.label, cx, titleCY, size=16, bold=True)
+        #LEFT
+        drawRect(leftCX,  boxCY, halfW, boxH,
+                 align='center', border='black', borderWidth=1.5, fill='white')
+        drawLabel('Function Options',leftTitleCX,leftTitleCY,size=16,bold=True)
+        #RIGHT
+        drawRect(rightCX, boxCY, halfW, boxH,
+                 align='center', border='black', borderWidth=1.5, fill='white')
+        #OPTIONS
+        for boxKey in fnInputMenu.internalBoxes:
+            box = fnInputMenu.internalBoxes[boxKey]
+            box.drawClickable(app)
+            box.drawOpenedBox(app,box.text)
+    else:
+         fnInputMenu.drawClickable(app)
+
+def handleFnInputBox(app):
+    fnInputMenu = app.menus['fnInputMenu']
+    fnInputBox = fnInputMenu.internalBoxes['fnInputBox']
+    for inputKey in fnInputBox.prevInputs:
+        if inputKey not in app.functions:
+            #### GEMINI API INTERPRETER
+            pythonicFunction = parseFunction(fnInputBox.prevInputs[inputKey])
+            app.functions[f'function{fnInputBox.totInputs}']
 
 
-##### MAKE TEXTBOXES #####
-def makeTextboxes(app):
-    functionInput = Textbox(app,label='test', cx=app.width*0.2,cy=app.height*0.2,
-                            width = app.width*0.2, height = app.height*0.1)
-    boxes = [functionInput]
-    for box in boxes:
-        app.textboxes.append(box)
+def parseFunction(userInput):
+    genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+    model = genai.GenerativeModel('gemini-2.0-flash-lite')
+    prompt = f"""Convert this math expression into a single Pythonic expression 
+using only numpy (as np) functions, in terms of the variables given. 
+Return only the expression, nothing else.
+Input: {userInput}"""
+    response = model.generate_content(prompt)
+    return response.text.strip()
