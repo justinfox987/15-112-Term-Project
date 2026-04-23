@@ -1,6 +1,7 @@
 from cmu_graphics import *
 from structures import *
 import google.genai as genai
+import os
 
 ##### CLI ELEMENTS #####
 
@@ -68,42 +69,86 @@ def drawFunctionInputMenu(app):
     leftCX  = cx - gap/2 - halfW/2
     rightCX = cx + gap/2 + halfW/2
     leftTitleCX,leftTitleCY = leftCX, (boxCY - boxH*0.45)
+    rightTitleCX,rightTitleCY = rightCX, (boxCY - boxH*0.45)
 
-        ####### HANDLE FUNCTION INPUT MENU
-    if fnInputMenu.opened:
-        fnInputMenu.drawOpenedMenu(app)
-        drawLabel(fnInputMenu.label, cx, titleCY, size=16, bold=True)
-        #LEFT
-        drawRect(leftCX,  boxCY, halfW, boxH,
-                 align='center', border='black', borderWidth=1.5, fill='white')
-        drawLabel('Function Options',leftTitleCX,leftTitleCY,size=16,bold=True)
-        #RIGHT
-        drawRect(rightCX, boxCY, halfW, boxH,
-                 align='center', border='black', borderWidth=1.5, fill='white')
-        #OPTIONS
-        for boxKey in fnInputMenu.internalBoxes:
-            box = fnInputMenu.internalBoxes[boxKey]
-            box.drawClickable(app)
-            box.drawOpenedBox(app,box.text)
-    else:
-         fnInputMenu.drawClickable(app)
+    fnInputMenu.drawOpenedMenu(app)
+    drawLabel(fnInputMenu.label, cx, titleCY, size=16, bold=True)
+    #LEFT
+    drawRect(leftCX,  boxCY, halfW, boxH,
+                align='center', border='black', borderWidth=1.5, fill='white')
+    drawLabel('Function Options',leftTitleCX,leftTitleCY,size=16,bold=True)
+    #RIGHT
+    drawRect(rightCX, boxCY, halfW, boxH,
+                align='center', border='black', borderWidth=1.5, fill='white')
+    drawLabel('Current Functions',rightTitleCX,rightTitleCY,size=16,bold=True)
+    fnContentTop = rightTitleCY + gap
+    fnContentBottom = boxCY + boxH/2 - gap
+    fnContentCY = (fnContentTop + fnContentBottom) / 2
+    fnContentH = fnContentBottom - fnContentTop
+    makeAndSizeFnMenus(app, rightCX, fnContentCY, halfW*0.85, fnContentH)
+
 
 def handleFnInputBox(app):
+    import threading
     fnInputMenu = app.menus['fnInputMenu']
     fnInputBox = fnInputMenu.internalBoxes['fnInputBox']
-    for inputKey in fnInputBox.prevInputs:
-        if inputKey not in app.functions:
-            #### GEMINI API INTERPRETER
-            pythonicFunction = parseFunction(fnInputBox.prevInputs[inputKey])
-            app.functions[f'function{fnInputBox.totInputs}']
-
+    userInput = fnInputBox.prevInputs[-1]
+    fnInputBox.prevInputs.pop()
+    app.isParsing = True
+    def parseAndAdd():
+        function = parseFunction(userInput)
+        app.functions[f"function{len(app.functions)}"] = function
+        app.isParsing = False
+    threading.Thread(target=parseAndAdd, daemon=True).start()
+            
 
 def parseFunction(userInput):
-    genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-    model = genai.GenerativeModel('gemini-2.0-flash-lite')
-    prompt = f"""Convert this math expression into a single Pythonic expression 
-using only numpy (as np) functions, in terms of the variables given. 
-Return only the expression, nothing else.
-Input: {userInput}"""
-    response = model.generate_content(prompt)
-    return response.text.strip()
+    print('parsing...')
+    client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+    prompt = f"""Convert this math expression into a single Pythonic expression
+    using only numpy (as np) functions, in terms of the variables given. Return
+    the pythonic function, then a tilde, then the function label, then a tilde,
+    then a comma-separated list of variables. For example, a user input of
+    'f(x,y) = 2x^2 * 3y^2' should return "'f(x,y)'~2*x**2 * 3*y**2~x,y".
+    The user input is included below.
+    Input: {userInput}
+    """
+    response = client.models.generate_content(model='gemma-4-26b-a4b-it', contents=prompt)
+    print('done!')
+    separatedResponse = response.text.strip().split('~')
+    label,pythonFunction,vars = separatedResponse[0],separatedResponse[1],separatedResponse[2]
+    varDict = dict()
+    for var in vars.split(','):
+        varDict[var] = 'auto'
+    newFunc = Function(app,label,pythonFunction,varDict)
+    return newFunc
+
+def makeAndSizeFnMenus(app,boxCX,boxCY,w,h):
+    totFuncs = len(app.functions)
+    if totFuncs > 0:
+        contentTop = boxCY - h/2
+        distBtwnBoxes = h / totFuncs
+        fnBoxH, fnBoxW = distBtwnBoxes * 0.9, w
+        i = 0
+        for functionKey in app.functions:
+            function = app.functions[functionKey]
+            matchKey = None
+            for funcMenuKey in app.funcMenus:
+                if app.funcMenus[funcMenuKey].function == function:
+                    matchKey = funcMenuKey
+            cy = contentTop + distBtwnBoxes/2 + distBtwnBoxes*i
+            cx = boxCX
+            if matchKey:
+                app.funcMenus[matchKey].cx = cx
+                app.funcMenus[matchKey].cy = cy
+                app.funcMenus[matchKey].height = fnBoxH
+                app.funcMenus[matchKey].width = fnBoxW
+            else:
+                app.funcMenus[function.label] = FuncMenu(app,cx,cy,fnBoxW,fnBoxH,function)
+            i += 1
+
+def drawClosedFuncMenus(app):
+    for menuKey in app.funcMenus:
+        funcMenu = app.funcMenus[menuKey]
+        funcMenu.drawClickable(app)
+            
