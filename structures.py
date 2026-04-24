@@ -1,13 +1,14 @@
 from cmu_graphics import *
 
 class Textbox:
-    def __init__(self, app, label, cx, cy, width, height, openLabel=None):
+    def __init__(self, app, label, cx, cy, width, height, openLabel=None,fontSize=16):
         self.label = label
         self.openLabel = openLabel if openLabel is not None else label
         self.cx = cx
         self.cy = cy
         self.width = width
         self.height = height
+        self.fontSize = fontSize
         self.opened = False
         self.clickableColor = 'lightgray'
         self.prevInputs = []
@@ -20,7 +21,8 @@ class Textbox:
         if not self.opened:
             drawRect(self.cx, self.cy, self.width, self.height,
                       fill=self.clickableColor,align='center', border='black',borderWidth=3)
-            drawText(app,self.cx,self.cy,self.width*0.9,self.height*0.9,self.label,fontSize=16,bold=True)
+            drawText(app,self.cx,self.cy,self.width*0.9,self.height*0.9,
+                     self.label,fontSize=self.fontSize,bold=True)
 
     def checkOverlap(self,app, mouseX, mouseY):
         if ((self.cx - self.width*0.5 <= mouseX <= self.cx + self.width*0.5)
@@ -38,7 +40,7 @@ class Textbox:
         from utils import drawText
         if self.opened:
             rectCX,rectCY = app.width*0.5,app.height*0.5  ## MIDDLE OF SCREEN
-            rectW,rectH = app.width*0.25,app.height*0.25    ## width and height
+            rectW,rectH = app.width*0.5,app.height*0.5    ## width and height
             drawRect(rectCX,rectCY,rectW,rectH,
                     border='black',borderWidth=2,
                     align='center', fill='white')
@@ -73,8 +75,8 @@ class Textbox:
 
 
 class Menu(Textbox):
-    def __init__(self,app,label,cx,cy,width,height,internalBoxes=None):
-        super().__init__(app,label,cx,cy,width,height)
+    def __init__(self,app,label,cx,cy,width,height,fontSize=16,internalBoxes=None):
+        super().__init__(app,label,cx,cy,width,height,fontSize=fontSize)
         self.internalBoxes = internalBoxes if internalBoxes is not None else {}
 
     def handleKey(self,app,key):
@@ -116,7 +118,13 @@ class FuncMenu(Menu):
         drawRect(cx,cy,w,h,align='center',fill='lightgray',border='black',
                  borderWidth=2)
         drawLabel('Function Options',cx,cy - h*0.4,bold=True,size=16)
-        ##### function details
+        self.colorMenu.cx = cx - w*0.25
+        self.colorMenu.cy = cy
+        self.colorMenu.radius = h*0.15
+        self.relableBox.cx = cx + w*0.25
+        self.relableBox.cy = cy
+        self.relableBox.width = w*0.35
+        self.relableBox.height = h*0.25
         ## COLOR CIRCLE
         if self.colorMenu.opened:
             self.colorMenu.drawOpened(app)
@@ -133,12 +141,13 @@ class FuncMenu(Menu):
             self.relableBox.drawClickable(app)
 
     def handleKey(self,app,key):
-        if self.internalOptions['label']:
+        if self.relableBox.opened:
             self.relableBox.handleKey(app,key)
             if key == 'enter':
                 newLabel = self.relableBox.prevInputs[-1]
                 self.relableBox.prevInputs.pop()
                 self.function.label = newLabel
+                self.label = newLabel
         if key == 'escape':
             self.opened = False
             app.currMenu = 'fnInputMenu'
@@ -223,3 +232,131 @@ class ColorMenu:
                 if distance <= rad:
                     self.currColor = color
                     self.opened = False
+
+### some claude, used my format and class to write a subclass
+class InlineTextbox(Textbox):
+    """Textbox that edits in-place rather than opening a modal overlay.
+    label acts as the committed value — defaults to 'auto' for matplotlib auto-sizing."""
+    def __init__(self, app, label, cx, cy, width, height, fontSize=12):
+        super().__init__(app, label, cx, cy, width, height, fontSize=fontSize)
+
+    def drawClickable(self, app):
+        from utils import drawText
+        fill = 'lightyellow' if self.opened else self.clickableColor
+        drawRect(self.cx, self.cy, self.width, self.height,
+                 fill=fill, align='center', border='black', borderWidth=2)
+        if self.opened:
+            cursor = '|' if app.cursorStep < 15 else ''
+            displayText = self.text + cursor
+        else:
+            displayText = self.label
+        drawText(app, self.cx, self.cy, self.width * 0.9, self.height * 0.9,
+                 displayText, fontSize=self.fontSize)
+
+    def handleKey(self, app, key):
+        if not self.opened:
+            return
+        if key == 'backspace':
+            self.text = self.text[:-1]
+        elif key == 'enter':
+            isAuto = self.text == 'auto'
+            isValidFloat = False
+            try:
+                float(self.text)
+                isValidFloat = True
+            except ValueError:
+                pass
+            if isAuto or isValidFloat:
+                self.label = self.text
+            self.text = ''
+            self.opened = False
+        elif key == 'escape':
+            self.text = ''
+            self.opened = False
+        elif key == 'space':
+            self.text += ' '
+        else:
+            self.text += key
+
+    def handleClick(self, app, mouseX, mouseY):
+        if self.opened and not self.checkOverlap(app, mouseX, mouseY):
+            self.text = ''
+            self.opened = False
+        elif not self.opened and self.checkOverlap(app, mouseX, mouseY):
+            self.opened = True
+
+    def drawOpenedBox(self, app, userInput):
+        pass  # inline only — no modal overlay
+
+    @property
+    def value(self):
+        try:
+            return float(self.label)
+        except ValueError:
+            return 'auto'
+
+#### 50/50 claude and me
+class Dropdown:
+    def __init__(self, app, label, cx, cy, width, height, options, fontSize=16):
+        self.label = label
+        self.cx = cx
+        self.cy = cy
+        self.width = width
+        self.height = height
+        self.options = options  # list of strings
+        self.fontSize = fontSize
+        self.opened = False
+        self.selected = None
+        self.clickableColor = 'lightgray'
+
+    def checkOverlap(self, app, mouseX, mouseY):
+        return ((self.cx - self.width*0.5 <= mouseX <= self.cx + self.width*0.5)
+            and (self.cy - self.height*0.5 <= mouseY <= self.cy + self.height*0.5))
+
+    def checkOptionOverlap(self, app, mouseX, mouseY, i):
+        optCY = self.cy + self.height/2 + self.height * (i + 0.5)
+        return ((self.cx - self.width*0.5 <= mouseX <= self.cx + self.width*0.5)
+            and (optCY - self.height*0.5 <= mouseY <= optCY + self.height*0.5))
+
+    def handleHover(self, app, mouseX, mouseY):
+        if self.checkOverlap(app, mouseX, mouseY) and not self.opened:
+            self.clickableColor = 'lightblue'
+        else:
+            self.clickableColor = 'lightgray'
+
+    def drawClickable(self, app):
+        from utils import drawText
+        drawRect(self.cx, self.cy, self.width, self.height,
+                 fill=self.clickableColor, align='center', border='black', borderWidth=3)
+        label = self.selected if self.selected is not None else self.label
+        drawText(app, self.cx, self.cy, self.width*0.9, self.height*0.9,
+                 label, fontSize=self.fontSize, bold=True)
+
+    def drawOpenedDropdown(self, app):
+        from utils import drawText
+        if self.opened:
+            # Draw the main box
+            drawRect(self.cx, self.cy, self.width, self.height,
+                     fill='lightblue', align='center', border='black', borderWidth=3)
+            label = self.selected if self.selected is not None else self.label
+            drawText(app, self.cx, self.cy, self.width*0.9, self.height*0.9,
+                     label, fontSize=self.fontSize, bold=True)
+            # Draw options below
+            for i, option in enumerate(self.options):
+                optCY = self.cy + self.height/2 + self.height * (i + 0.5)
+                drawRect(self.cx, optCY, self.width, self.height,
+                         fill='white', align='center', border='black', borderWidth=2)
+                drawText(app, self.cx, optCY, self.width*0.9, self.height*0.9,
+                         option, fontSize=self.fontSize)
+
+    def handleClick(self, app, mouseX, mouseY):
+        if self.opened:
+            for i, option in enumerate(self.options):
+                if self.checkOptionOverlap(app, mouseX, mouseY, i):
+                    self.selected = option
+                    self.opened = False
+                    return
+            # Click outside options closes it
+            self.opened = False
+        elif self.checkOverlap(app, mouseX, mouseY):
+            self.opened = True
